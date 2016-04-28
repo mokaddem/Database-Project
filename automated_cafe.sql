@@ -57,26 +57,39 @@ DELETE FROM OrderedDrinks;
 DELETE FROM Payements;
 
 INSERT INTO Clients (tokenNumber, amountDue) VALUES
-  (1, 20),
-  (2, 30);
+  (10, 14),
+  (30, 7),
+  (40, 21);
 
 INSERT INTO theTables (tableNumber, codebar, isFree) VALUES
   (1, 10, false),
-  (2, 20, false);
+  (2, 20, true),
+  (3, 30, false),
+  (4, 40, false),
+  (5, 50, true);
+  
 
 INSERT INTO Orders (orderNumber, orderTime) VALUES
   (1, '2016-04-28 12:59:01'),
-  (2, '2016-04-28 13:10:22');
+  (2, '2016-04-28 13:10:22'),
+  (3, '2016-04-28 13:30:53'),
+  (4, '2016-04-28 13:58:47');
 
 INSERT INTO Drinks (drinkNumber, price, name, description) VALUES
-  (1, 1, 'water', 'simple water'),
-  (2, 2, 'fanta', 'awesome fanta');
+  (1, 1, 'Water', 'Non sparkling water'),
+  (2, 2, 'Sparkling water', 'A marvellous sparling water'),
+  (3, 2, 'Fanta', 'An orange fanta'),
+  (4, 2, 'Cafe', 'A good old black cafe');
 
 INSERT INTO OrderedDrinks (orderNumber, drinkNumber, quantity) VALUES
   (1, 2, 3),
-  (2, 1, 4);
+  (2, 1, 4),
+  (3, 4, 1),
+  (4, 2, 2),
+  (4, 3, 6);
 
 INSERT INTO Payements (payementNumber, amountPayed) VALUES
-  (1, 10),
-  (2, 400);
+  (1, 8),
+  (2, 80),
+  (3, 24);
 
