@@ -126,12 +126,12 @@ CREATE OR REPLACE FUNCTION AcquireTable(tableCodebar integer) RETURNS integer AS
     IF NOT FOUND THEN
 	RAISE EXCEPTION 'The table % is not available or not existing.', tableCodebar;
     END IF;
-
-    -- We update the table, because it is no longer free.
-    UPDATE theTables SET isFree = false WHERE codebar = tableCodebar;
     
     -- We create the new clients, so that his (new) token can be used for ordering drinks.
     INSERT INTO Clients (amountDue) VALUES (0) RETURNING tokenNumber INTO token;
+
+    -- We update the table, because it is no longer free.
+    UPDATE theTables SET isFree = false,tokenNumber = token WHERE codebar = tableCodebar;
 	
     -- We return the current value of tokenNumber, that is, the one of the last client created.
     RETURN token;
