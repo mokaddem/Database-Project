@@ -1,6 +1,11 @@
-﻿
+﻿/*
+ * TODO: See how to use the tuples in procedure 2 and 3 (instead of integer[]).
+ *       Try using more things like views, ...
+ */
+
+
 /*
- *  We generate the 6 needed tables. If they existed before, they are dropped.
+ * Step 1: generates the 6 needed tables. If they existed before, they are dropped.
  */
 DROP TABLE IF EXISTS Clients CASCADE;
 DROP TABLE IF EXISTS theTables CASCADE;
@@ -26,9 +31,8 @@ CREATE TABLE theTables (
 CREATE TABLE Orders (
   orderNumber SERIAL primary key,
   orderTime timestamp,
-  tokenNumber integer
-  --foreign key (tokenNumber) references Clients (tokenNumber)
-  -- We won't be needing that thanks to the cascading delete.
+  tokenNumber integer,
+  foreign key (tokenNumber) references Clients (tokenNumber) ON DELETE CASCADE
 );
 
 CREATE TABLE Drinks (
@@ -43,7 +47,7 @@ CREATE TABLE OrderedDrinks (
   drinkNumber integer,
   qty integer,
   primary key (orderNumber, drinkNumber),
-  foreign key (orderNumber) references Orders (orderNumber),
+  foreign key (orderNumber) references Orders (orderNumber) ON DELETE CASCADE, 
   foreign key (drinkNumber) references Drinks (drinkNumber)
 );
 
@@ -53,7 +57,7 @@ CREATE TABLE Payements (
 );
 
 /*
- *  Now we populate the database. If any value existed, it is deleted before.
+ * Step 2: populates the database. If any value existed, it is deleted before.
  */
 DELETE FROM Clients;
 DELETE FROM theTables;
@@ -100,7 +104,7 @@ INSERT INTO Payements (amountPayed) VALUES
   (24);
 
 /*
- * 3: we generate the 4 required procedure.
+ * Step 3: defines the 4 required procedures.
  */
 
 /*
@@ -177,8 +181,8 @@ CREATE OR REPLACE FUNCTION OrderDrinks(token integer, drinkList integer[]) RETUR
       -- And all the orderedDrinks into OrderedDrinks, while computing the amount due.
       amount := 0;
       FOREACH anOrderedDrink SLICE 1 IN ARRAY drinkList LOOP
-        SELECT INTO anAmount price*qty FROM Drinks WHERE anOrderedDrink[1] = drinkNumber;
-	amount := amount + anAmount;
+        SELECT INTO anAmount price FROM Drinks WHERE anOrderedDrink[1] = drinkNumber;
+	amount := amount + anAmount*anOrderedDrink[2];
 	INSERT INTO OrderedDrinks (orderNumber, drinkNumber, qty) VALUES (theOrder, anOrderedDrink[1], anOrderedDrink[2]);
       END LOOP;
       
@@ -188,12 +192,6 @@ CREATE OR REPLACE FUNCTION OrderDrinks(token integer, drinkList integer[]) RETUR
       RETURN theOrder;
     END;
     $$LANGUAGE plpgsql;
-
-/*
-SELECT OrderDrinks(3,ARRAY[[2,5],[3,2]]);
-SELECT * FROM Orders;
-SELECT * FROM OrderedDrinks;
-*/
     
 /*
  * IssueTicket 
@@ -231,37 +229,41 @@ CREATE OR REPLACE FUNCTION IssueTicket(token integer) RETURNS RECORD AS $$
  * The procedure used when we are deleting a client.
  * Deletes everything related to the client.
  */
-CREATE OR REPLACE FUNCTION DeleteClient() RETURNS TRIGGER AS $$
+ /*
+CREATE OR REPLACE FUNCTION DeleteClient() RETURNS TRIGGER AS $RecursiveDeleteClient$
     BEGIN
       DELETE FROM Orders WHERE tokenNumber = OLD.tokenNumber;
-      RETURN NULL;
+      IF NOT FOUND THEN RETURN NULL; END IF;
+      RETURN OLD;
     END;
-    $$LANGUAGE plpgsql;
+    $RecursiveDeleteClient$LANGUAGE plpgsql;
+    */
     
 /*
  * The trigger used when we are deleting a client.
  * It will launch the procedure deleting the orders of the client.
  */
-CREATE TRIGGER RecursiveDeleteClient BEFORE DELETE ON Clients EXECUTE PROCEDURE DeleteClient();
+--CREATE TRIGGER RecursiveDeleteClient BEFORE INSERT ON Clients EXECUTE PROCEDURE DeleteClient();
 
 /*
  * The procedure used when we are deleting an order.
  * Deletes everything related to the order.
  */
-CREATE OR REPLACE FUNCTION DeleteOrder() RETURNS TRIGGER AS $$
+ /*
+CREATE OR REPLACE FUNCTION DeleteOrder() RETURNS TRIGGER AS $RecursiveDeleteOrder$
     BEGIN
       DELETE FROM OrderedDrinks WHERE orderNumber = OLD.orderNumber;
-      RETURN NULL;
+      IF NOT FOUND THEN RETURN NULL; END IF;
+      RETURN OLD;
     END;
-    $$LANGUAGE plpgsql;
+    $RecursiveDeleteOrder$LANGUAGE plpgsql;
+    */
 
 /*
  * The trigger used when we are deleting an order.
  * It will launch the procedure deleting the orderedDrinks in that order.
  */
-CREATE TRIGGER RecursiveDeleteOrder BEFORE DELETE ON Orders EXECUTE PROCEDURE DeleteOrder();
-
-
+--CREATE TRIGGER RecursiveDeleteOrder BEFORE DELETE ON Orders EXECUTE PROCEDURE DeleteOrder();
 
 
 /*
@@ -299,4 +301,23 @@ CREATE OR REPLACE FUNCTION PayTable(token integer, amount integer) RETURNS VOID 
     END;
     $$LANGUAGE plpgsql;
 
-SELECT PayTable(1,20);
+/*
+-- Test Function 1:
+--SELECT AcquireTable(10); -- Table not free.
+SELECT AcquireTable(20); -- Works.
+
+-- Test Function 2:
+--SELECT OrderDrinks(5,ARRAY[[2,5],[3,2]]); -- Wrong client.
+SELECT OrderDrinks(3,ARRAY[[2,5],[3,2]]); -- Works.
+
+-- Test Function 3:
+--SELECT IssueTicket(5); -- Wrong client.
+SELECT IssueTicket(3); -- Works.
+
+-- Test Function 4:
+--SELECT PayTable(1,10); -- Wrong table.
+--SELECT PayTable(2,10); -- Not enough money.
+SELECT PayTable(2,30); -- Works
+SELECT * FROM Clients,Orders,OrderedDrinks;
+
+ */
