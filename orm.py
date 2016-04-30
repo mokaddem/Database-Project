@@ -8,7 +8,7 @@ from sqlalchemy import Column, Integer, Boolean, DateTime, String, Sequence
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import relationship
-
+from sqlalchemy.sql import func
 
 def connect():
     return psycopg2.connect("dbname=m4 user=sami")
@@ -153,15 +153,14 @@ def populate():
 #	FUNCTIONS
 #
 
-'''
- * AcquireTable
+'''AcquireTable
  * DESC: invoked by the smartphone app when scanning a table code bar.
  * IN:  a table bar code.
  * OUT: a client token.
  * PRE: the table is free.
  * POST: the table is no longer free.
  * POST: issued token can be used for ordering drinks.
-'''
+ '''
 def AcquireTable(tableCodebar):
 	if (session.query(theTables).filter(theTables.codebar == tableCodebar).first() is None):
 		raise NameError('The table is not available or not existing.')
@@ -188,9 +187,8 @@ def checkTable(token):
 		raise NameError('The client token is not valid or does not correspond to an occupied table.')
 	return theTable
 
-'''
- * OrderDrinks 
- * DESC:  invoked when the user presses the “order” button in the ordering screen.
+'''OrderDrinks 
+ * DESC:  invoked when the user presses the "order" button in the ordering screen.
  * IN: a client token.
  * IN: a list of (drink, qty) taken from the screen form.
  * OUT: the unique number of the created order.
@@ -198,60 +196,70 @@ def checkTable(token):
  * POST: the order is created, its number is the one returned.
  '''
 def OrderDrinks(token, drinkList):
+	theTable = checkTable(token)
+	order = Orders(orderTime=func.now(), tokenNumber=token)
+	session.add(order)
+	session.commit()
+	session.refresh(order)
+	theOrder = order.orderNumber
 
-  -- NOTE: the second argument is not a list of (drink,qty) but a list of integer such that (drink1,qty1,drink2,qty2,...).
-CREATE OR REPLACE FUNCTION OrderDrinks(token integer, drinkList integer[]) RETURNS integer AS $$
-    DECLARE
-      anOrderedDrink integer[];
-      theTable integer;
-      amount integer;
-      anAmount integer;
-      theOrder integer;
-    BEGIN
-      -- We start by verifying the preconditions.
-      theTable = checkTable(token);
+	amout = 0
+	for anOrderedDrink in drinkList:
+		anAmount = session.query(Drinks).filter(Drinks.drinkNumber == anOrderedDrink[0]).first()
+		amount += anAmount * anOrderedDrink[1]
 
-      -- We then insert the order into Orders.
-      INSERT INTO Orders (orderTime,tokenNumber) VALUES (now(),token) RETURNING orderNumber INTO theOrder;
+		ordereddrink = OrderDrinks(orderNumber=theOrder, drinkNumber=anOrderedDrink[0], qty=anOrderedDrink[1])
+		session.add(ordereddrink)
+		session.commit()
 
-      -- And all the orderedDrinks into OrderedDrinks, while computing the amount due.
-      amount := 0;
-      FOREACH anOrderedDrink SLICE 1 IN ARRAY drinkList LOOP
-        SELECT INTO anAmount price FROM Drinks WHERE anOrderedDrink[1] = drinkNumber;
-	amount := amount + anAmount*anOrderedDrink[2];
-	INSERT INTO OrderedDrinks (orderNumber, drinkNumber, qty) VALUES (theOrder, anOrderedDrink[1], anOrderedDrink[2]);
-      END LOOP;
-      
-      -- We add the amount to the one already due by the client.
-      UPDATE Clients SET amountDue = amountDue + amount WHERE tokenNumber = token;
-      
-      RETURN theOrder;
-    END;
-    $$LANGUAGE plpgsql;
+	client = session.query(Clients).filter(Clients.tokenNumber == token)
+	client.amountDue += amount
 
+	return theOrder
 
-
-
-
-
+'''IssueTicket 
+ * DESC: invoked when the user asks for looking at the table summary and due amount.
+ * IN: a client token.
+ * OUT: the ticket to be paid, with a summary of orders (which drinks in which quantities) and total amount to pay.
+ * PRE: the client token is valid and corresponds to an occupied table.
+ * POST: issued ticket corresponds to all (and only) ordered drinks at that table.
+ ''' 
+def IssueTicket(token):
+	theTable = checkTable(token)
+	amount = session.query(Clients).filter(Clients.tokenNumber == token).first()
+	orders = session.query(Orders).filter(Orders.tokenNumber == token).all()
+	orderedDrinkList = session.query(OrderedDrinks).filter(OrderedDrinks.orderedNumber in orders).all()
+	return [amout, orderedDrinkList]
 
 
+'''PayTable 
+ * DESC:  invoked by the smartphone on confirmation from the payment gateway (we ignore security on purpose here; a real app would never expose such an API, of course).
+ * IN: a client token.
+ * IN:  an amount paid.
+ * OUT:
+ * PRE: the client token is valid and corresponds to an occupied table.
+ * PRE: the input amount is greater or equal to the amount due for that table.
+ * POST: the table is released.
+ * POST: the client token can no longer be used for ordering
+ '''
+def PayTable(token, amount):
+ 	#We start by verifying the preconditions.
+ 	theTable = checkTable(token);
+ 	theAmountDue = session.query(Clients).filter(Clients.tokenNumber == token).first().amoutDue
+ 	if(amout < theAmountDue):
+ 		raise NameError('The amount payed is not enough to pay what is due.')
+ 	else:
+ 		payement = Payements(amountPayed = amount)
 
+ 	#The client token will non longer be used for ordering.
+ 	client = session.query(Clients).filter(Clients.tokenNumber == token).first()
+ 	session.delete(e)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+ 	#We update the table, because it is now free.
+ 	table = session.query(theTables).filter(theTables.tokenNumber == token).first()
+	table.isFree = True
+	session.add(table)
+	session.commit()
 
 
 ''' INSERT
