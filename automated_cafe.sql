@@ -201,7 +201,8 @@ CREATE OR REPLACE FUNCTION OrderDrinks(token integer, drinkList integer[]) RETUR
  * PRE: the client token is valid and corresponds to an occupied table.
  * POST: issued ticket corresponds to all (and only) ordered drinks at that table.
  */ 
-CREATE OR REPLACE FUNCTION IssueTicket(token integer) RETURNS RECORD AS $$
+CREATE TYPE ticket (amount integer, orderedDrinkList varchar(10)[]);
+CREATE OR REPLACE FUNCTION IssueTicket(token integer) RETURNS ticket AS $$
     DECLARE
       theTable integer;
       amount integer;
