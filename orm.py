@@ -9,6 +9,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+from sqlalchemy import *
+from sqlalchemy import orm
 
 def connect():
     return psycopg2.connect("dbname=m4 user=sami")
@@ -17,11 +19,56 @@ Base = declarative_base()
 Session = sessionmaker(bind=engine)	#create the session mapper
 session = Session() #initialize the session
 
+
+# Perform the mapping with classes and database tables
+meta = MetaData()
+meta.reflect(bind=engine)
+
+class Clients(object):
+	pass
+class theTables(object):
+	pass
+class Payements(object):
+	pass
+class Orders(object):
+	pass
+class Drinks(object):
+	pass
+class OrderedDrinks(object):
+	pass
+
+orm.Mapper(Clients, meta.tables['clients'])
+orm.Mapper(theTables, meta.tables['thetables'])
+orm.Mapper(Payements, meta.tables['payements'])
+orm.Mapper(Orders, meta.tables['orders'])
+orm.Mapper(Drinks, meta.tables['drinks'])
+orm.Mapper(OrderedDrinks, meta.tables['ordereddrinks'])
+
+'''	
+Clients = meta.tables['clients']
+theTables = meta.tables['thetables']
+Payements = meta.tables['payements']
+Orders = meta.tables['orders']
+Drinks = meta.tables['drinks']
+OrderedDrinks = meta.tables['ordereddrinks']
+'''
+
+'''
+print session.query(Clients).all()
+print session.query(theTables).all()
+print session.query(Payements).all()
+print session.query(Orders).all()
+print session.query(Drinks).all()
+print session.query(OrderedDrinks).all()
+'''
+
 '''
 All classes used for the mapping
 '''
+
+'''
 class Clients(Base):
-	__tablename__ = 'Clients'
+	__tablename__ = 'clients'
 	tokenNumber = Column(Integer, primary_key=True, autoincrement=True)
 	amountDue = Column(Integer)
 	order = relationship("Orders", back_populates="client")
@@ -50,7 +97,6 @@ class Orders(Base):
 	orderTime = Column(DateTime)
 	tokenNumber = Column(Integer, ForeignKey('Clients.tokenNumber'))
 	client = relationship("Clients", back_populates="order")
-	#relationship("Child", backref=backref("parent", uselist=False))
 
 	def __repr__(self):
 		return "<Orders(orderNumber='%i', orderTime='%s', tokenNumber='%i')>" % (self.orderNumber, self.orderTime, self.tokenNumber)
@@ -72,8 +118,8 @@ class OrderedDrinks(Base):
 	#ForeignKeyConstraint(['orderedNumber', 'drinkNumber'], ['Orders.orderNumber', 'Drinks.drinkNumber'])
 	def __repr__(self):
 		return "<OrderedDrinks(orderedNumber='%i', drinkNumber='%i', qty='%i')>" % (self.orderedNumber, self.drinkNumber, self.qty)
-
-Base.metadata.create_all(engine) #Create the mapping
+'''
+#Base.metadata.create_all(engine) #Create the tables
 
 def populate():
 	#delete everythings
@@ -149,6 +195,9 @@ def populate():
 	session.add(payement3)
 	session.commit()
 
+#populate()
+
+
 #
 #	FUNCTIONS
 #
@@ -162,27 +211,31 @@ def populate():
  * POST: issued token can be used for ordering drinks.
  '''
 def AcquireTable(tableCodebar):
-	if (session.query(theTables).filter(theTables.codebar == tableCodebar).first() is None):
+	#tabletest = session.query(theTables).first().codebar
+	#print tabletest
+	table = session.query(theTables).filter(theTables.codebar == tableCodebar).first()
+	if (table is None):
 		raise NameError('The table is not available or not existing.')
 	
 	# create new client
-	newClient = Clients(amountDue=0)
+	newClient = Clients()
+	newClient.amountdue = 0
 	session.add(newClient)
 	session.commit()
 
 	# update the table so that it is no longer free
-	table = session.query(theTables).filter(theTables.codebar == tableCodebar).first()
-	table.isFree = False
+	table.isfree = False
+	table.tokennumber = newClient.tokennumber
 	session.add(table)
 	session.commit()
 
 	# return the coyrrent value of tokenNumber (last client created)
 	session.refresh(newClient)
-	return newClient.tokenNumber
+	return newClient.tokennumber
 
 # Function verifying that the client token is valid and corresponds to an occupied table.
 def checkTable(token):
-	theTable = session.query(theTables).filter(and_(theTables.tokenNumber == token, theTables.isFree == False)).first()
+	theTable = session.query(theTables).filter(and_(theTables.tokennumber == token, theTables.isfree == False)).first()
 	if (theTable is None):
 		raise NameError('The client token is not valid or does not correspond to an occupied table.')
 	return theTable
@@ -197,23 +250,29 @@ def checkTable(token):
  '''
 def OrderDrinks(token, drinkList):
 	theTable = checkTable(token)
-	order = Orders(orderTime=func.now(), tokenNumber=token)
+	order = Orders()
+	order.ordertime = func.now()
+	order.tokennumber = token
 	session.add(order)
 	session.commit()
 	session.refresh(order)
-	theOrder = order.orderNumber
+	theOrder = order.ordernumber
 
-	amout = 0
+	amount = 0
 	for anOrderedDrink in drinkList:
-		anAmount = session.query(Drinks).filter(Drinks.drinkNumber == anOrderedDrink[0]).first()
+		anAmount = session.query(Drinks).filter(Drinks.drinknumber == anOrderedDrink[0]).first().price
 		amount += anAmount * anOrderedDrink[1]
 
-		ordereddrink = OrderDrinks(orderNumber=theOrder, drinkNumber=anOrderedDrink[0], qty=anOrderedDrink[1])
+		ordereddrink = OrderedDrinks()
+		ordereddrink.ordernumber = theOrder
+		ordereddrink.drinknumber = anOrderedDrink[0]
+		ordereddrink.qty = anOrderedDrink[1]
 		session.add(ordereddrink)
 		session.commit()
 
-	client = session.query(Clients).filter(Clients.tokenNumber == token)
-	client.amountDue += amount
+	client = session.query(Clients).filter(Clients.tokennumber == token).first()
+	client.amountdue += amount
+	session.commit()
 
 	return theOrder
 
@@ -226,10 +285,18 @@ def OrderDrinks(token, drinkList):
  ''' 
 def IssueTicket(token):
 	theTable = checkTable(token)
-	amount = session.query(Clients).filter(Clients.tokenNumber == token).first()
-	orders = session.query(Orders).filter(Orders.tokenNumber == token).all()
-	orderedDrinkList = session.query(OrderedDrinks).filter(OrderedDrinks.orderedNumber in orders).all()
-	return [amout, orderedDrinkList]
+	amount = session.query(Clients).filter(Clients.tokennumber == token).first().amountdue
+	orders = session.query(Orders).filter(Orders.tokennumber == token).all()
+	orderList = []
+	for o in orders:
+		orderList += [o.ordernumber]
+	#orderedDrinkList = session.query(OrderedDrinks).filter(OrderedDrinks.ordernumber in orderList).first()
+	orderedDrinks = session.query(OrderedDrinks).all()
+	orderedDrinkList = []
+	for o in orderedDrinks:
+		if(o.ordernumber in orderList):
+			orderedDrinkList += [o.ordernumber]
+	return [amount, orderedDrinkList]
 
 
 '''PayTable 
@@ -245,19 +312,21 @@ def IssueTicket(token):
 def PayTable(token, amount):
  	#We start by verifying the preconditions.
  	theTable = checkTable(token);
- 	theAmountDue = session.query(Clients).filter(Clients.tokenNumber == token).first().amoutDue
- 	if(amout < theAmountDue):
+ 	theAmountDue = session.query(Clients).filter(Clients.tokennumber == token).first().amountdue
+ 	if(amount < theAmountDue):
  		raise NameError('The amount payed is not enough to pay what is due.')
  	else:
- 		payement = Payements(amountPayed = amount)
+ 		payement = Payements()
+ 		payement.amountPayed = amount
+ 		session.commit()
 
  	#The client token will non longer be used for ordering.
- 	client = session.query(Clients).filter(Clients.tokenNumber == token).first()
- 	session.delete(e)
+ 	client = session.query(Clients).filter(Clients.tokennumber == token).first()
+ 	session.delete(client)
 
  	#We update the table, because it is now free.
- 	table = session.query(theTables).filter(theTables.tokenNumber == token).first()
-	table.isFree = True
+ 	table = session.query(theTables).filter(theTables.tokennumber == token).first()
+	table.isfree = True
 	session.add(table)
 	session.commit()
 
@@ -287,4 +356,31 @@ session.delete(client1)
 session.commit()
 '''
 
-#populate()
+
+#
+# Sparkling Water Script
+#
+def sparkling_script():
+
+	#The client acquire the second table and we get the client token.
+	#q1 = SELECT INTO client AcquireTable(20);
+	client = AcquireTable(20)
+
+	# The client orders a sparkling water.
+	#q2 = SELECT INTO firstOrder OrderDrinks(client,ARRAY[[2,1]]);
+	orderSparkling = [[1,2]]
+	firstOrder = OrderDrinks(client, orderSparkling)
+
+	# The client then looks at his bill.
+	#q3 = SELECT INTO ticket IssueTicket(client);
+	ticket = IssueTicket(client)
+
+	# The client then order another sparkling water.
+	#q4 = SELECT INTO secondOrder OrderDrinks(client,ARRAY[[2,1]]);
+	secondOrder = OrderDrinks(client, orderSparkling)
+
+	# Finally, the client pays and release the table.
+	#q5 = SELECT INTO tablePaid PayTable(client,4);
+	#tablePaid = PayTable(client, 4)
+
+sparkling_script()
