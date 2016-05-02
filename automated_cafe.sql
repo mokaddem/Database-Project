@@ -165,16 +165,15 @@ CREATE OR REPLACE FUNCTION checkTable(token integer) RETURNS integer AS $$
  * OrderDrinks 
  * DESC:  invoked when the user presses the “order” button in the ordering screen.
  * IN: a client token.
- * IN: a list of the newly created type my_drink (drink, qty) taken from the screen form.
+ * IN: a list of (drink, qty) taken from the screen form.
  * OUT: the unique number of the created order.
  * PRE: the client token is valid and corresponds to an occupied table.
  * POST: the order is created, its number is the one returned.
  */
-DROP TYPE IF EXISTS my_drink CASCADE;
-CREATE TYPE my_drink AS (drinkNumber integer, qty integer);
-CREATE OR REPLACE FUNCTION OrderDrinks(token integer, drinkList my_drink[]) RETURNS integer AS $$
+CREATE OR REPLACE FUNCTION OrderDrinks(token integer, drinkList integer[]) RETURNS integer AS $$
+    -- drinklist is not a list of tuple but a list of integer such that [drink1, qty1],[drink2,qty2]
     DECLARE
-      anOrderedDrink my_drink;
+      anOrderedDrink integer[];
       theTable integer;
       amount integer;
       anAmount integer;
@@ -188,10 +187,10 @@ CREATE OR REPLACE FUNCTION OrderDrinks(token integer, drinkList my_drink[]) RETU
 
       -- And all the orderedDrinks into OrderedDrinks, while computing the amount due.
       amount := 0;
-      FOREACH anOrderedDrink IN ARRAY drinkList LOOP
-        SELECT INTO anAmount price FROM Drinks WHERE anOrderedDrink.drinkNumber = drinkNumber;
-	      amount := amount + anAmount*anOrderedDrink.qty;
-	      INSERT INTO OrderedDrinks (orderNumber, drinkNumber, qty) VALUES (theOrder, anOrderedDrink.drinkNumber, anOrderedDrink.qty);
+      FOREACH anOrderedDrink SLICE 1 IN ARRAY drinkList LOOP
+        SELECT INTO anAmount price FROM Drinks WHERE anOrderedDrink[1] = drinkNumber;
+	      amount := amount + anAmount*anOrderedDrink[2];
+	      INSERT INTO OrderedDrinks (orderNumber, drinkNumber, qty) VALUES (theOrder, anOrderedDrink[1], anOrderedDrink[2]);
       END LOOP;
       
       -- We add the amount to the one already due by the client.
@@ -282,17 +281,8 @@ SELECT AcquireTable(20); -- Works.
 
 /*
 -- Test Function 2:
-DO $$
-DECLARE 
-  drink1 my_drink;
-  drink2 my_drink;
-  result integer;
-BEGIN
-  drink1 = (2,5);
-  drink2 = (3,2);
-  --SELECT OrderDrinks(5,ARRAY[drink1,drink2]); -- Wrong client.
-  SELECT INTO result OrderDrinks(3,ARRAY[drink1,drink2]); -- Works.
-END $$;
+--SELECT OrderDrinks(5,ARRAY[[3,2],[2,5]]); -- Wrong client.
+SELECT OrderDrinks(3,ARRAY[[3,2],[2,5]]); -- Works.
 */
 
 /*

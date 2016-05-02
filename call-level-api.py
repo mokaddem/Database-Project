@@ -13,14 +13,12 @@ cur = conn.cursor()
 #q1 = SELECT INTO client AcquireTable(20);
 cur.callproc('AcquireTable', [20, ])
 client = cur.fetchone()
-print 'client = ', client
 
 # The client orders a sparkling water.
 #q2 = SELECT INTO firstOrder OrderDrinks(client,ARRAY[[2,1]]);
 orderSparkling = [[1,2]]
 cur.callproc('OrderDrinks', [client, orderSparkling,])
 firstOrder = cur.fetchone()
-print 'firstOrder = ', firstOrder
 
 # The client then looks at his bill.
 #q3 = SELECT INTO ticket IssueTicket(client);

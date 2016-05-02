@@ -9,13 +9,13 @@ DECLARE
   ticket RECORD;
   secondOrder integer;
   tablePaid RECORD;
-  sparklingWater my_drink;
+  sparklingWater integer[];
 BEGIN
   -- The client acquire the second table and we get the client token.
   SELECT INTO client AcquireTable(20);
 
   -- The client orders a sparkling water.
-  sparklingWater = (2,1);
+  sparklingWater =  ARRAY[2,1];
   SELECT INTO firstOrder OrderDrinks(client,ARRAY[sparklingWater]);
 
   -- The client then looks at his bill.
