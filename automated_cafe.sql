@@ -1,6 +1,9 @@
 ﻿/*
- * TODO: See how to use the tuples in procedure 2 and 3 (instead of integer[]).
- *       Try using more things like views, ...
+ * This script generate the 'Automated Cafe' database in three steps:
+ *    1. Generates the tables.
+ *    2. Populates the database.
+ *    3. Defines the 4 procedures used to manipulate this database.
+ *    (4. Examples using these procedures.)
  */
 
 
@@ -25,7 +28,8 @@ CREATE TABLE theTables (
   isFree boolean,
   tokenNumber integer
   --foreign key (tokenNumber) references Clients (tokenNumber)
-  --We can't do that, or we won't be able to delete the clients that have payed.
+  -- We don't do that, or we won't be able to delete the clients that have payed.
+  -- This means that an unoccupied table will keep in store the tokenNumber of the last client that used it.
 );
 
 CREATE TABLE Orders (
@@ -56,6 +60,7 @@ CREATE TABLE Payements (
   amountPayed integer
 );
 
+
 /*
  * Step 2: populates the database. If any value existed, it is deleted before.
  */
@@ -73,10 +78,10 @@ INSERT INTO Clients (amountDue) VALUES
 
 INSERT INTO theTables (tableNumber, codebar, isFree, tokenNumber) VALUES
   (1, 10, false, 1),
-  (2, 20, true, 1), -- An unoccupied table remembers the tokenNumber of the last client on it.
+  (2, 20, true, 0), -- An unoccupied table remembers the tokenNumber of the last client on it. Here, client 0.
   (3, 30, false, 2),
   (4, 40, false, 3),
-  (5, 50, true, 2);
+  (5, 50, true, 0);
   
 
 INSERT INTO Orders (orderTime, tokenNumber) VALUES
@@ -103,6 +108,7 @@ INSERT INTO Payements (amountPayed) VALUES
   (80),
   (24);
 
+
 /*
  * Step 3: defines the 4 required procedures.
  */
@@ -124,7 +130,7 @@ CREATE OR REPLACE FUNCTION AcquireTable(tableCodebar integer) RETURNS integer AS
     -- We start by verifying that the table is free (and exists).
     SELECT INTO theTable * FROM theTables WHERE codebar = tableCodebar AND isFree = true;
     IF NOT FOUND THEN
-	RAISE EXCEPTION 'The table % is not available or not existing.', tableCodebar;
+	    RAISE EXCEPTION 'The table % is not available or not existing.', tableCodebar;
     END IF;
     
     -- We create the new clients, so that his (new) token can be used for ordering drinks.
@@ -148,21 +154,23 @@ CREATE OR REPLACE FUNCTION checkTable(token integer) RETURNS integer AS $$
     BEGIN
       SELECT INTO theTable * FROM theTables WHERE token = tokenNumber AND isFree = false;
       IF NOT FOUND THEN
-	RAISE EXCEPTION 'The client token % is not valid or does not correspond to an occupied table.', token;
+	      RAISE EXCEPTION 'The client token % is not valid or does not correspond to an occupied table.', token;
       END IF;
       RETURN theTable;
     END;
     $$LANGUAGE plpgsql;
 
+
 /*
  * OrderDrinks 
  * DESC:  invoked when the user presses the “order” button in the ordering screen.
  * IN: a client token.
- * IN: a list of (drink, qty) taken from the screen form.
+ * IN: a list of the newly created type my_drink (drink, qty) taken from the screen form.
  * OUT: the unique number of the created order.
  * PRE: the client token is valid and corresponds to an occupied table.
  * POST: the order is created, its number is the one returned.
  */
+DROP TYPE IF EXISTS my_drink CASCADE;
 CREATE TYPE my_drink AS (drinkNumber integer, qty integer);
 CREATE OR REPLACE FUNCTION OrderDrinks(token integer, drinkList my_drink[]) RETURNS integer AS $$
     DECLARE
@@ -182,8 +190,8 @@ CREATE OR REPLACE FUNCTION OrderDrinks(token integer, drinkList my_drink[]) RETU
       amount := 0;
       FOREACH anOrderedDrink IN ARRAY drinkList LOOP
         SELECT INTO anAmount price FROM Drinks WHERE anOrderedDrink.drinkNumber = drinkNumber;
-	amount := amount + anAmount*anOrderedDrink.qty;
-	INSERT INTO OrderedDrinks (orderNumber, drinkNumber, qty) VALUES (theOrder, anOrderedDrink.drinkNumber, anOrderedDrink.qty);
+	      amount := amount + anAmount*anOrderedDrink.qty;
+	      INSERT INTO OrderedDrinks (orderNumber, drinkNumber, qty) VALUES (theOrder, anOrderedDrink.drinkNumber, anOrderedDrink.qty);
       END LOOP;
       
       -- We add the amount to the one already due by the client.
@@ -193,6 +201,7 @@ CREATE OR REPLACE FUNCTION OrderDrinks(token integer, drinkList my_drink[]) RETU
     END;
     $$LANGUAGE plpgsql;
     
+
 /*
  * IssueTicket 
  * DESC: invoked when the user asks for looking at the table summary and due amount.
@@ -201,6 +210,7 @@ CREATE OR REPLACE FUNCTION OrderDrinks(token integer, drinkList my_drink[]) RETU
  * PRE: the client token is valid and corresponds to an occupied table.
  * POST: issued ticket corresponds to all (and only) ordered drinks at that table.
  */ 
+DROP TYPE IF EXISTS my_ticket CASCADE;
 CREATE TYPE my_ticket AS (amount integer, orderedDrinkList varchar(10)[]);
 CREATE OR REPLACE FUNCTION IssueTicket(token integer) RETURNS my_ticket AS $$
     DECLARE
@@ -215,54 +225,12 @@ CREATE OR REPLACE FUNCTION IssueTicket(token integer) RETURNS my_ticket AS $$
       -- Find the amount due.
       SELECT INTO amount amountDue FROM Clients WHERE tokenNumber = token;
 
-      -- SELECT INTO orderList orderNumber FROM Orders WHERE token = Orders.tokenNumber
-      -- Why isn't this working?
-      -- What's more, this is utterly stupid: see if we can do anything in tuple.
+      -- Create a list containing every ordered drink.
       orderedDrinkList := array(SELECT (drinkNumber,qty) FROM OrderedDrinks WHERE OrderedDrinks.orderNumber IN (SELECT orderNumber FROM Orders WHERE token = Orders.tokenNumber));
       
       RETURN (amount,orderedDrinkList);
     END;
     $$LANGUAGE plpgsql;
-
-/*
- * The procedure used when we are deleting a client.
- * Deletes everything related to the client.
- */
- /*
-CREATE OR REPLACE FUNCTION DeleteClient() RETURNS TRIGGER AS $RecursiveDeleteClient$
-    BEGIN
-      DELETE FROM Orders WHERE tokenNumber = OLD.tokenNumber;
-      IF NOT FOUND THEN RETURN NULL; END IF;
-      RETURN OLD;
-    END;
-    $RecursiveDeleteClient$LANGUAGE plpgsql;
-    */
-    
-/*
- * The trigger used when we are deleting a client.
- * It will launch the procedure deleting the orders of the client.
- */
---CREATE TRIGGER RecursiveDeleteClient BEFORE INSERT ON Clients EXECUTE PROCEDURE DeleteClient();
-
-/*
- * The procedure used when we are deleting an order.
- * Deletes everything related to the order.
- */
- /*
-CREATE OR REPLACE FUNCTION DeleteOrder() RETURNS TRIGGER AS $RecursiveDeleteOrder$
-    BEGIN
-      DELETE FROM OrderedDrinks WHERE orderNumber = OLD.orderNumber;
-      IF NOT FOUND THEN RETURN NULL; END IF;
-      RETURN OLD;
-    END;
-    $RecursiveDeleteOrder$LANGUAGE plpgsql;
-    */
-
-/*
- * The trigger used when we are deleting an order.
- * It will launch the procedure deleting the orderedDrinks in that order.
- */
---CREATE TRIGGER RecursiveDeleteOrder BEFORE DELETE ON Orders EXECUTE PROCEDURE DeleteOrder();
 
 
 /*
@@ -283,9 +251,11 @@ CREATE OR REPLACE FUNCTION PayTable(token integer, amount integer) RETURNS VOID 
     BEGIN
       -- We start by verifying the preconditions.
       theTable = checkTable(token);
+
+      -- Then we look at the amount that was due. This raises an error if the client is not paying enough.
       SELECT INTO theAmountDue amountDue FROM Clients WHERE Clients.tokenNumber = token;
       IF amount < theAmountDue THEN
-	RAISE EXCEPTION 'The amount payed (%) is not enough to pay what is due (%).', amount, theAmountDue;
+	      RAISE EXCEPTION 'The amount payed (%) is not enough to pay what is due (%).', amount, theAmountDue;
       ELSE
         -- If the amount is enough, then the payement is added in the database.
         INSERT INTO Payements (amountPayed) VALUES (amount);
@@ -299,6 +269,10 @@ CREATE OR REPLACE FUNCTION PayTable(token integer, amount integer) RETURNS VOID 
     
     END;
     $$LANGUAGE plpgsql;
+
+/*
+ * Step 4: examples.
+ */
 
 /*
 -- Test Function 1:
@@ -316,7 +290,7 @@ DECLARE
 BEGIN
   drink1 = (2,5);
   drink2 = (3,2);
-  --SELECT OrderDrinks(5,ARRAY[[2,5],[3,2]]); -- Wrong client.
+  --SELECT OrderDrinks(5,ARRAY[drink1,drink2]); -- Wrong client.
   SELECT INTO result OrderDrinks(3,ARRAY[drink1,drink2]); -- Works.
 END $$;
 */
@@ -332,5 +306,5 @@ SELECT IssueTicket(3); -- Works.
 --SELECT PayTable(1,10); -- Wrong table.
 --SELECT PayTable(2,10); -- Not enough money.
 SELECT PayTable(2,30); -- Works
-SELECT * FROM Clients,Orders,OrderedDrinks;
+--SELECT * FROM Clients,Orders,OrderedDrinks; -- The client and all his orders have been deleted.
 */
